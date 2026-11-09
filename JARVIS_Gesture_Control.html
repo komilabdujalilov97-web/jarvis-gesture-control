@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="uz">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#071426">
+<title>JARVIS Gesture Control</title>
+<style>
+:root{color-scheme:dark;--bg:#06101e;--panel:#0d2036;--line:#1d5274;--cyan:#55dfff;--muted:#9bb4c8}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at top,#103052 0,#06101e 55%);color:#eaf8ff;font:16px system-ui,sans-serif;min-height:100vh}
+main{max-width:760px;margin:auto;padding:22px 16px 36px}
+header{text-align:center;margin:8px 0 20px}h1{margin:0;color:var(--cyan);letter-spacing:3px;font-size:26px}header p{color:var(--muted);margin:7px 0}
+.panel{background:#0b1b2dcc;border:1px solid var(--line);border-radius:18px;padding:14px;margin:12px 0;box-shadow:0 8px 28px #0005}
+.video-wrap{position:relative;background:#02070d;border-radius:14px;overflow:hidden;aspect-ratio:4/3}
+video{width:100%;height:100%;object-fit:cover;transform:scaleX(-1)}
+.overlay{position:absolute;inset:10px;border:1px solid #55dfff55;border-radius:10px;pointer-events:none}
+.status{display:flex;gap:8px;align-items:center;color:var(--muted);font-size:14px;margin:12px 2px}
+.dot{width:9px;height:9px;border-radius:50%;background:#778899}.dot.on{background:#44e39a;box-shadow:0 0 12px #44e39a}
+button{border:1px solid #3a9fc4;background:#103653;color:#eafaff;padding:13px 15px;border-radius:12px;font-weight:650;font-size:15px}
+button.primary{background:linear-gradient(120deg,#087ba5,#1554a0);border-color:#55dfff;width:100%;margin:8px 0}
+.controls{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+.result{font-size:28px;font-weight:750;color:var(--cyan);margin:5px 0}
+.small{color:var(--muted);font-size:13px;line-height:1.5}
+.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:9px}
+.tile{padding:11px;background:#102942;border:1px solid #1b4663;border-radius:12px}
+.tile b{display:block;color:#fff}.tile span{font-size:13px;color:var(--muted)}
+footer{color:#88a5bb;font-size:12px;text-align:center;margin-top:18px}
+</style>
+</head>
+<body><main>
+<header><h1>J.A.R.V.I.S.</h1><p>GESTURE CONTROL · PROTOTYPE 01</p></header>
+<section class="panel">
+  <div class="video-wrap"><video id="video" autoplay playsinline muted></video><div class="overlay"></div></div>
+  <div class="status"><i id="dot" class="dot"></i><span id="status">Kamera hali yoqilmagan</span></div>
+  <button class="primary" id="start">KAMERANI ISHGA TUSHIRISH</button>
+  <div class="controls"><button id="switch">Kamerani almashtirish</button><button id="stop">To‘xtatish</button></div>
+  <p class="small">Avval old kamera bilan sinang. Kamera ruxsatini so‘rasa, Chrome uchun ruxsat bering.</p>
+</section>
+<section class="panel">
+  <div class="small">ANIQLANGAN IMO-ISHORA</div>
+  <div id="gesture" class="result">—</div>
+  <div id="action" class="small">Qo‘lingizni kamera oldiga, yorug‘ joyda tuting.</div>
+</section>
+<section class="panel">
+  <b>Sinov buyruqlari</b>
+  <div class="grid" style="margin-top:10px">
+    <div class="tile"><b>✋ Open_Palm</b><span>Kaft ochiq — PAUZA</span></div>
+    <div class="tile"><b>👍 Thumb_Up</b><span>Bosh barmoq — TASDIQLASH</span></div>
+    <div class="tile"><b>✌️ Victory</b><span>Ikki barmoq — KEYINGI</span></div>
+    <div class="tile"><b>✊ Closed_Fist</b><span>Musht — TO‘XTATISH</span></div>
+    <div class="tile"><b>☝️ Pointing_Up</b><span>Bir barmoq — TANLASH</span></div>
+    <div class="tile"><b>🤟 ILoveYou</b><span>Maxsus imo-ishora — SALOM</span></div>
+  </div>
+</section>
+<p class="small">Eslatma: bu birinchi prototip faqat imo-ishorani taniydi va ekranda ko‘rsatadi. U hozircha telefon ilovalarini bosmaydi yoki tizim sozlamalarini o‘zgartirmaydi. Keyingi bosqichda Android boshqaruviga ulash yo‘lini quramiz.</p>
+<footer>ATLAS × JARVIS · Telefon prototipi</footer>
+</main>
+<script type="module">
+const video=document.querySelector('#video'), statusEl=document.querySelector('#status'), dot=document.querySelector('#dot');
+const gestureEl=document.querySelector('#gesture'), actionEl=document.querySelector('#action');
+let stream=null, recognizer=null, raf=0, facing='user', lastVideoTime=-1, busy=false;
+const actions={Open_Palm:'PAUZA — kaft ochiq',Thumb_Up:'TASDIQLASH — bosh barmoq yuqoriga',Victory:'KEYINGI — ikki barmoq',Closed_Fist:'TO‘XTATISH — musht',Pointing_Up:'TANLASH — bir barmoq',ILoveYou:'SALOM — maxsus imo-ishora',Thumb_Down:'BEKOR QILISH — bosh barmoq pastga'};
+function setStatus(t,on=false){statusEl.textContent=t;dot.classList.toggle('on',on)}
+async function loadModel(){
+  setStatus('AI modeli yuklanmoqda…');
+  const {GestureRecognizer,FilesetResolver}=await import('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14');
+  const fileset=await FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm');
+  recognizer=await GestureRecognizer.createFromOptions(fileset,{baseOptions:{modelAssetPath:'https://storage.googleapis.com/mediapipe-models/gesture_recognizer/gesture_recognizer/float16/1/gesture_recognizer.task',delegate:'CPU'}, runningMode:'VIDEO', numHands:2});
+}
+async function start(){
+ try{
+  if(!recognizer) await loadModel();
+  stream=await navigator.mediaDevices.getUserMedia({audio:false,video:{facingMode:facing,width:{ideal:640},height:{ideal:480}}});
+  video.srcObject=stream; await video.play(); setStatus('Kamera faol — qo‘lingizni ko‘rsating',true); loop();
+ }catch(e){setStatus('Xatolik: '+(e.name||e.message)); actionEl.textContent='Chrome kamera ruxsatini tekshiring va internet aloqasini sinang.'}
+}
+function loop(){
+ if(!stream||busy){raf=requestAnimationFrame(loop);return}
+ if(video.readyState>=2 && video.currentTime!==lastVideoTime){
+  lastVideoTime=video.currentTime;
+  try{
+   const result=recognizer.recognizeForVideo(video,performance.now());
+   const top=result.gestures?.[0]?.[0];
+   if(top&&top.score>0.55){const name=top.categoryName;gestureEl.textContent=name;actionEl.textContent=(actions[name]||'Imo-ishora aniqlandi')+' · ishonch '+Math.round(top.score*100)+'%';}
+   else {gestureEl.textContent='—';actionEl.textContent='Qo‘l aniq ko‘rinmayapti. Kaftni kameraga qarating.'}
+  }catch(e){setStatus('Aniqlashda xatolik');}
+ }
+ raf=requestAnimationFrame(loop);
+}
+function stop(){cancelAnimationFrame(raf);if(stream)stream.getTracks().forEach(t=>t.stop());stream=null;video.srcObject=null;setStatus('Kamera to‘xtatildi');}
+document.querySelector('#start').addEventListener('click',start);
+document.querySelector('#stop').addEventListener('click',stop);
+document.querySelector('#switch').addEventListener('click',async()=>{facing=facing==='user'?'environment':'user';stop();await start()});
+</script></body></html>
